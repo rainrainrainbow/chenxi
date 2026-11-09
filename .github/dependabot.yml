@@ -1,22 +1,10 @@
 version: 2
 updates:
-  - package-ecosystem: gomod
-    directory: /
-    schedule:
-      interval: weekly
-    labels: [dependencies, go]
-    open-pull-requests-limit: 3
-
-  - package-ecosystem: cargo
-    directory: /hostd
-    schedule:
-      interval: weekly
-    labels: [dependencies, rust]
-    open-pull-requests-limit: 3
-
+  # 本项目 Go / Rust 均为零第三方依赖，扫描 gomod 与 cargo 只会产生空 PR。
+  # 只保留 Actions 自身的版本更新，并降低频率避免噪音。
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     labels: [dependencies, ci]
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
