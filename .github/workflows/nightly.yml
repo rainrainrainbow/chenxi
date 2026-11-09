@@ -17,7 +17,7 @@ jobs:
     name: 护栏 / 竞态 / 漏洞扫描
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v5
         with:
@@ -44,7 +44,7 @@ jobs:
     name: 原生 arm64 编译复核（工具链漂移检测）
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v5
         with:

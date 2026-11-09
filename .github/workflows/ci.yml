@@ -22,7 +22,7 @@ jobs:
     name: 护栏 + Go/Rust 单元测试
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v5
         with:
@@ -53,7 +53,7 @@ jobs:
     # x86 → aarch64 交叉链接器 sysroot 的坑（Ubuntu 24.04 上 -lgcc_s 常缺失）。
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v5
         with:
