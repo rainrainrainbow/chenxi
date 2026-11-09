@@ -52,6 +52,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +73,20 @@ jobs:
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: 编译（Go 静态 + Rust 零 crate）
-        run: make build-arm64
+        run: |
+          # 显式补一次，避免 toolchain action 的 targets 输入未生效
+          rustup target add aarch64-unknown-linux-gnu
+          set +e
+          make build-arm64 > /tmp/chenxi-build.log 2>&1
+          rc=$?
+          cat /tmp/chenxi-build.log
+          if [ "$rc" -ne 0 ]; then
+            echo "---- 错误尾部（同步写入 annotations）----"
+            tail -60 /tmp/chenxi-build.log \
+              | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            exit "$rc"
+          fi
 
       - name: 校验产物架构与体积
         run: bash scripts/verify-artifacts.sh

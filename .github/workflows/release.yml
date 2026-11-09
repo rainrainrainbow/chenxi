@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +44,17 @@ jobs:
 
       - name: 编译 + 校验
         run: |
-          make build-arm64
+          rustup target add aarch64-unknown-linux-gnu
+          set +e
+          make build-arm64 > /tmp/chenxi-build.log 2>&1
+          rc=$?
+          cat /tmp/chenxi-build.log
+          if [ "$rc" -ne 0 ]; then
+            tail -60 /tmp/chenxi-build.log \
+              | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            exit "$rc"
+          fi
           bash scripts/verify-artifacts.sh
 
       - name: 打包
