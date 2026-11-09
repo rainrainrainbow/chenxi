@@ -19,11 +19,7 @@ env:
 jobs:
   release:
     name: 构建并发布 arm64 包
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-      AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -33,20 +29,11 @@ jobs:
           cache: false
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
 
-      - name: 安装 aarch64 交叉链接器
+      - name: 编译 + 校验（原生 aarch64）
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-
-      - name: 编译 + 校验
-        run: |
-          rustup target add aarch64-unknown-linux-gnu
           set +e
-          make build-arm64 > /tmp/chenxi-build.log 2>&1
+          make build-local > /tmp/chenxi-build.log 2>&1
           rc=$?
           cat /tmp/chenxi-build.log
           if [ "$rc" -ne 0 ]; then

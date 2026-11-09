@@ -127,5 +127,5 @@ Unix Domain Socket：`/run/chenxi/hostd.sock`。**每行一个扁平 JSON 对象
 ## 八、可验证性 / 本次交付边界
 
 - Go 侧仅用标准库，Rust 侧仅用 `std`，`go.mod` 无 `require`、`Cargo.toml` 无 `[dependencies]`。
-- 交叉编译不需要 cgo、不需要 `gcc`、不需要下载 crate，适合离线在板子上编译。
+- Go 侧不需要 cgo、Rust 侧零 crate；推荐在 aarch64 主机（Armbian 板子或 GitHub `ubuntu-24.04-arm` runner）上 `make build-local` 原生编译，避开 x86 → aarch64 交叉链接器的 sysroot 差异。离线也能在板子上编译。
 - **本次只交付源码与设计，未在真机烧录、未压测、未做安全审计**；内存数字是设计预算，不是实测值。上板后请用 `systemctl status` + `ps -o rss` + `free -m` 实测并回写 `config.json` 的 budgets。

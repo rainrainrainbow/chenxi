@@ -47,13 +47,11 @@ jobs:
           cargo test --all-targets
 
   build-arm64:
-    name: 交叉编译 aarch64 产物
+    name: 原生 arm64 编译产物
     needs: verify
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-      AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+    # GitHub 托管的 arm64 runner：直接在 aarch64 上原生编译，绕开
+    # x86 → aarch64 交叉链接器 sysroot 的坑（Ubuntu 24.04 上 -lgcc_s 常缺失）。
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -63,21 +61,11 @@ jobs:
           cache: false
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
 
-      - name: 安装 aarch64 交叉链接器
+      - name: 编译（原生 aarch64，Go 静态 + Rust 零 crate）
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-
-      - name: 编译（Go 静态 + Rust 零 crate）
-        run: |
-          # 显式补一次，避免 toolchain action 的 targets 输入未生效
-          rustup target add aarch64-unknown-linux-gnu
           set +e
-          make build-arm64 > /tmp/chenxi-build.log 2>&1
+          make build-local > /tmp/chenxi-build.log 2>&1
           rc=$?
           cat /tmp/chenxi-build.log
           if [ "$rc" -ne 0 ]; then
@@ -94,7 +82,7 @@ jobs:
       - name: 构建摘要
         run: |
           {
-            echo '## 晨曦 · linux/arm64 构建'
+            echo '## 晨曦 · linux/arm64 构建（GitHub 原生 arm64 runner）'
             echo ''
             echo '| 产物 | 大小 | Machine |'
             echo '| --- | --- | --- |'

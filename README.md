@@ -77,14 +77,29 @@
 
 ## 快速开始
 
-### 1. 交叉编译（在任意 x86 开发机上，只需 Go + Rust）
+### 1. 拿到 arm64 二进制（三选一）
+
+**推荐：直接用 CI 产物**，本地不用装任何工具链。Actions 在 GitHub 原生
+`ubuntu-24.04-arm` runner 上编译，去 [Actions artifacts](https://github.com/rainrainrainbow/chenxi/actions)
+或 [Releases](https://github.com/rainrainrainbow/chenxi/releases) 下载即可。
+
+在 **aarch64 主机**（Armbian 板子 / arm64 runner）上原生编译，最省事：
+
+```bash
+make build-local
+# 产物：dist/chenxi（Go 静态）、dist/chenxi-hostd（Rust，动态链接系统 glibc）
+```
+
+在 x86 开发机上交叉编译（需 `gcc-aarch64-linux-gnu` + `libc6-dev-arm64-cross`
+与 Rust 的 `aarch64-unknown-linux-gnu` target）：
 
 ```bash
 make build-arm64
-# 产物：dist/chenxi（~12 MB）、dist/chenxi-hostd（~1 MB）
 ```
 
-Go 侧纯标准库，一条 `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build` 即可；Rust 侧零 crate，需要 `aarch64-unknown-linux-gnu` target 与交叉链接器（或直接在板子上 `cargo build --release`）。
+> 交叉链接对发行版 sysroot 很敏感（Ubuntu 24.04 上常见 `-lgcc_s` 找不到）。
+> 失败时别硬调，走前两条路径。Go 侧纯标准库，`CGO_ENABLED=0 GOOS=linux
+> GOARCH=arm64 go build` 即可；Rust 侧零 crate，在目标架构上 `cargo build --release` 即可。
 
 ### 2. 部署到 Armbian
 
@@ -138,9 +153,9 @@ curl -s localhost:7788/v1/status          # 内存、事件数、技能数、Age
 
 | Workflow | 触发 | 做什么 |
 |---|---|---|
-| `ci.yml` | push / PR / 手动 | 架构护栏 → `go vet` + `go test` → `cargo check` + `cargo test` → 装 `gcc-aarch64-linux-gnu` 交叉编译 → 校验架构/体积/链接方式 → 上传 artifact（保留 14 天） |
-| `release.yml` | `v*` tag / 手动 | 同样构建，打包 `tar.gz` + `SHA256SUMS`，自动创建 GitHub Release |
-| `nightly.yml` | 每周一 / 手动 | `go test -race`、`govulncheck`、`cargo test --release`、工具链漂移复核 |
+| `ci.yml` | push / PR / 手动 | 架构护栏 → `go vet` + `go test` → `cargo check` + `cargo test` → 原生 `ubuntu-24.04-arm` runner 上 `make build-local` → 校验架构/体积/链接方式 → 上传 artifact（保留 14 天） |
+| `release.yml` | `v*` tag / 手动 | 同样在 arm64 runner 上构建，打包 `tar.gz` + `SHA256SUMS`，自动创建 GitHub Release |
+| `nightly.yml` | 每周一 / 手动 | `go test -race`、`govulncheck`、`cargo test --release`，外加独立 arm64 job 做编译复核 |
 
 `scripts/check-guardrails.sh` 把「零第三方依赖 / 无 `os/exec` / 无 cgo / 禁用本地推理 / hostd 四层权限」变成 CI 里**会红的断言**；`scripts/verify-artifacts.sh` 检查产物确为 AArch64、体积未越预算、Go 产物为静态链接。dependabot 每周检查 Actions 版本（以及两套空依赖清单）。
 

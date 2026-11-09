@@ -40,15 +40,20 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-      - name: 重新交叉编译验证（工具链漂移检测）
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+  build-native:
+    name: 原生 arm64 编译复核（工具链漂移检测）
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: 编译 + 校验
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-          rustup target add aarch64-unknown-linux-gnu
-          make build-arm64
+          make build-local
           bash scripts/verify-artifacts.sh

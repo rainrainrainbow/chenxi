@@ -7,12 +7,14 @@ AARCH64_TARGET := aarch64-unknown-linux-gnu
 
 all: build-local
 
-## 交叉编译两个 arm64 二进制：Go 静态链接 / Rust 动态链接系统 glibc
+## 在 x86 上交叉编译（需 gcc-aarch64-linux-gnu + libc6-dev-arm64-cross）
+## 产物：Go 静态链接 / Rust 动态链接系统 glibc
 build-arm64: $(DIST)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -ldflags="-s -w" -o $(DIST)/chenxi ./cmd/chenxi
 	$(MAKE) rust-arm64
 
-## 直接在 Armbian 板子上本机编译（不需要交叉链接器）
+## 在 aarch64 主机（Armbian 板子 / arm64 runner）上原生编译，无需交叉链接器
+## 注意：不要在 x86 上跑这条，Rust 会产出宿主架构二进制。
 build-local: $(DIST)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -ldflags="-s -w" -o $(DIST)/chenxi ./cmd/chenxi
 	cd hostd && $(CARGO) build --release
