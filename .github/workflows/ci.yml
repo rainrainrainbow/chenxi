@@ -94,7 +94,7 @@ jobs:
             echo '部署方法见仓库 README 与 `deploy/armbian-tuning.md`。'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chenxi-linux-arm64-${{ github.sha }}
           path: dist/
