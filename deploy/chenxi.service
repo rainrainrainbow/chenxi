@@ -1,0 +1,33 @@
+[Unit]
+Description=Chenxi - lightweight agent runtime (Go)
+After=network-online.target chenxi-hostd.service
+Wants=network-online.target
+Requires=chenxi-hostd.service
+
+[Service]
+Type=simple
+User=chenxi
+Group=chenxi
+WorkingDirectory=/etc/chenxi
+EnvironmentFile=-/etc/chenxi.env
+Environment=GOMEMLIMIT=128MiB
+Environment=GOGC=50
+ExecStart=/usr/local/bin/chenxi -config /etc/chenxi/config.json
+Restart=on-failure
+RestartSec=5
+
+# 1 GB 机器上的硬护栏
+MemoryMax=160M
+MemoryHigh=128M
+CPUQuota=60%
+TasksMax=48
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chenxi /var/log/chenxi /run/chenxi
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

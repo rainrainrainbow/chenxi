@@ -1,0 +1,52 @@
+name: Nightly / 供应链
+
+on:
+  schedule:
+    # 每周一 03:17 UTC
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  audit:
+    name: 护栏 / 竞态 / 漏洞扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: 架构护栏
+        run: bash scripts/check-guardrails.sh
+
+      - name: Go 竞态检测（宿主架构）
+        run: go test ./... -race -count=1
+
+      - name: Rust release 模式测试
+        run: cd hostd && cargo test --release
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: 重新交叉编译验证（工具链漂移检测）
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          rustup target add aarch64-unknown-linux-gnu
+          make build-arm64
+          bash scripts/verify-artifacts.sh

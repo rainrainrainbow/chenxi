@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发布版本号（如 v0.1.1）'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  release:
+    name: 构建并发布 arm64 包
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: 安装 aarch64 交叉链接器
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: 编译 + 校验
+        run: |
+          make build-arm64
+          bash scripts/verify-artifacts.sh
+
+      - name: 打包
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          rm -rf release && mkdir -p "release/chenxi"
+          cp dist/chenxi dist/chenxi-hostd "release/chenxi/"
+          cp README.md DESIGN.md LICENSE SOUL.md AGENTS.md \
+             config.json agents.json "release/chenxi/"
+          cp -r deploy "release/chenxi/"
+          tar -czf "chenxi-linux-arm64-${TAG}.tar.gz" -C release chenxi
+          sha256sum "chenxi-linux-arm64-${TAG}.tar.gz" > SHA256SUMS
+          echo "包内容："
+          tar -tzf "chenxi-linux-arm64-${TAG}.tar.gz"
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: 晨曦 ${{ env.TAG }}
+          draft: false
+          prerelease: ${{ contains(env.TAG, 'preview') || contains(env.TAG, 'rc') }}
+          generate_release_notes: true
+          body: |
+            ## 晨曦 · linux/arm64
+
+            目标硬件：Amlogic S905M / 1 GB RAM / 16 GB eMMC / Armbian。
+
+            - `chenxi`：Go 单二进制（静态链接，Agent 运行时）
+            - `chenxi-hostd`：Rust 零依赖守护进程（唯一副作用出口）
+
+            解压后按 `README.md` 的「部署到 Armbian」与
+            `deploy/armbian-tuning.md` 操作；API Key 走 `/etc/chenxi.env`，
+            不要写进配置文件。校验和见 `SHA256SUMS`。
+
+            > 本项目未在真机压测；内存数字为设计预算，上板后请实测回写
+            > `config.json` 的 `budgets`。
+          files: |
+            chenxi-linux-arm64-*.tar.gz
+            SHA256SUMS

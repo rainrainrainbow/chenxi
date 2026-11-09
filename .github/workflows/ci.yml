@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  verify:
+    name: 护栏 + Go/Rust 单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # 零第三方依赖，没有 go.sum；开启 cache 反而会因找不到依赖文件失败。
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: 架构护栏（零依赖 / 无 cgo / 禁用本地推理）
+        run: bash scripts/check-guardrails.sh
+
+      - name: Go vet + 单元测试
+        run: |
+          go vet ./...
+          go test ./... -count=1
+
+      - name: Rust check + 单元测试
+        run: |
+          cd hostd
+          cargo check --all-targets
+          cargo test --all-targets
+
+  build-arm64:
+    name: 交叉编译 aarch64 产物
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: 安装 aarch64 交叉链接器
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: 编译（Go 静态 + Rust 零 crate）
+        run: make build-arm64
+
+      - name: 校验产物架构与体积
+        run: bash scripts/verify-artifacts.sh
+
+      - name: 构建摘要
+        run: |
+          {
+            echo '## 晨曦 · linux/arm64 构建'
+            echo ''
+            echo '| 产物 | 大小 | Machine |'
+            echo '| --- | --- | --- |'
+            for f in dist/chenxi dist/chenxi-hostd; do
+              printf '| `%s` | %s | %s |\n' \
+                "$(basename "$f")" \
+                "$(du -h "$f" | cut -f1)" \
+                "$(readelf -h "$f" | awk -F: '/Machine/ {gsub(/^ +/, "", $2); print $2}')"
+            done
+            echo ''
+            echo 'Go 侧静态链接、Rust 侧动态链接系统 glibc；本地推理已禁用。'
+            echo '部署方法见仓库 README 与 `deploy/armbian-tuning.md`。'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chenxi-linux-arm64-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

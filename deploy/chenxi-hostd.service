@@ -1,0 +1,32 @@
+[Unit]
+Description=Chenxi capability host (Rust) - the only side-effect boundary
+Before=chenxi.service
+
+[Service]
+Type=simple
+User=chenxi-host
+Group=chenxi
+RuntimeDirectory=chenxi
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/bin/chenxi-hostd --config /etc/chenxi/hostd.json
+Restart=on-failure
+RestartSec=3
+
+# 第 0 层：进程沙箱。第 1 层（capability 白名单）由 hostd.json 决定，
+# 第 2/3 层（AI 档位、用户审批）在每次请求执行前重新校验。
+MemoryMax=64M
+MemoryHigh=48M
+CPUQuota=40%
+TasksMax=24
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chenxi/workspace /var/log/chenxi /run/chenxi
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+{
+  "socket": "/run/chenxi/hostd.sock",
+  "workspace": "/var/lib/chenxi/workspace",
+  "audit": "/var/log/chenxi/audit.jsonl",
+  "caps": "read,write,exec,net",
+  "workers": "2",
+  "timeout_sec": "20",
+  "max_output_bytes": "65536"
+}

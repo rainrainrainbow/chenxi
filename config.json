@@ -1,0 +1,61 @@
+{
+  "listen": "127.0.0.1:7788",
+  "socket": "/run/chenxi/hostd.sock",
+  "data_dir": "/var/lib/chenxi",
+  "soul_file": "SOUL.md",
+  "agents_file": "AGENTS.md",
+  "registry_file": "agents.json",
+  "provider": {
+    "kind": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "api_key_env": "CHENXI_API_KEY",
+    "timeout_sec": 60,
+    "max_response_bytes": 65536
+  },
+  "host": {
+    "default_mode": "workspace",
+    "default_approval": "ask",
+    "timeout_sec": 20,
+    "workers": 2,
+    "workspace_dir": "/var/lib/chenxi/workspace"
+  },
+  "budgets": {
+    "go_mem_limit_mib": 128,
+    "gogc": 50,
+    "max_message_bytes": 8192,
+    "max_tool_output_bytes": 65536,
+    "max_context_chars": 12000,
+    "max_index_entries": 20000,
+    "max_log_bytes": 268435456,
+    "max_snapshot_bytes": 33554432,
+    "max_steps": 8,
+    "max_concurrency": 2,
+    "max_subagent_chars": 4000
+  },
+  "scenes": [
+    {
+      "id": "coding",
+      "keywords": ["代码", "bug", "编译", "重构", "函数", "go", "rust", "报错", "单测"],
+      "prompt": "场景：编码。优先读代码定位问题，改动保持最小；给出可验证的验证命令。不要大段贴代码，只贴改动部分。"
+    },
+    {
+      "id": "ops",
+      "keywords": ["磁盘", "内存", "进程", "日志", "系统", "服务", "网络", "温度", "负载"],
+      "prompt": "场景：运维。先用只读命令取证，再下结论；任何写操作都要说明影响范围并等待批准。注意本机只有 1 GB 内存。"
+    },
+    {
+      "id": "life",
+      "keywords": ["提醒", "日程", "记一下", "早上", "每天", "别忘了", "周报"],
+      "prompt": "场景：日常管家。回答简短，涉及记忆时先检索再确认；能转成定时任务的主动建议转定时任务。"
+    }
+  ],
+  "cron": [
+    {
+      "id": "morning",
+      "spec": "daily 07:30",
+      "text": "给我一句今日简报：系统负载、剩余磁盘、待办条数。只读，不要执行写操作。",
+      "target": "cli"
+    }
+  ]
+}

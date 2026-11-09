@@ -1,0 +1,7 @@
+dist/
+hostd/target/
+*.log
+*.jsonl
+.env
+chenxi.env
+.DS_Store

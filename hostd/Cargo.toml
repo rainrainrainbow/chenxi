@@ -1,0 +1,16 @@
+[package]
+name = "chenxi-hostd"
+version = "0.1.0"
+edition = "2021"
+description = "Chenxi capability host: the only side-effect boundary on a 1 GB board"
+license = "MIT"
+
+# 零依赖：只用 std，离线也能在 Armbian 上 cargo build。
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
