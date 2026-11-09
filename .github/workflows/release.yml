@@ -60,7 +60,7 @@ jobs:
           tar -tzf "chenxi-linux-arm64-${TAG}.tar.gz"
 
       - name: 创建 GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TAG }}
           name: 晨曦 ${{ env.TAG }}
