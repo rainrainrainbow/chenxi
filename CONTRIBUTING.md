@@ -21,7 +21,10 @@
 bash scripts/check-guardrails.sh
 go vet ./... && go test ./... -count=1
 cd hostd && cargo check --all-targets && cargo test
+make test-integration     # 起真实 chenxi-hostd，跑 Go ↔ UDS 端到端
 ```
+
+新增渠道时：验签/解密放在 `Handle` 最前面，回调里绝不阻塞等模型；所有文本经 `ChannelManager.Submit` → `App.Handle`；密钥只写环境变量名；平台调用复用 `mgr.doJSON` 与 `tokenCache`。个人微信协议登录不接受 PR。
 
 交叉编译（需要 `gcc-aarch64-linux-gnu` 与 Rust 的
 `aarch64-unknown-linux-gnu` target）：
@@ -34,7 +37,7 @@ make build-arm64 && bash scripts/verify-artifacts.sh
 
 ## CI
 
-- `ci.yml`：每次 push / PR 跑护栏 + 单元测试 + aarch64 交叉编译，产物上传为 artifact。
+- `ci.yml`：每次 push / PR 跑护栏 + 单元测试 + 真实 hostd 的 UDS 双进程联调 + 原生 arm64 编译，产物上传为 artifact。
 - `release.yml`：推送 `v*` tag（或手动 dispatch）生成 Release 与 SHA256SUMS。
 - `nightly.yml`：每周跑竞态检测、govulncheck 与工具链漂移复核。
 

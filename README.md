@@ -40,6 +40,7 @@
 | 单次工具输出 | ≤ 64 KiB | `hostd/src/capability.rs` 截断 |
 | 单次会话上下文 | ≤ 12,000 字符，超出压缩成摘要 | `internal/cx/loop.go` |
 | 并发 | 全局 ≤ 2，子 Agent 默认 1 | `internal/cx/team.go` |
+| 渠道队列 / 去重 | 容量 4、去重 256 条（均 FIFO 淘汰） | `internal/cx/channel.go` |
 | 磁盘 | 事件日志 ≤ 256 MiB、快照 ≤ 32 MiB、日志轮转 | `config.json` 的 `budgets` |
 | 本地大模型 | **明确禁用** | `internal/cx/provider.go` 返回硬错误 |
 
@@ -50,8 +51,8 @@
 ## 架构
 
 ```
-  CLI / HTTP / Webhook              ← 只做输入输出，不持能力
-          │
+  CLI · HTTP · 飞书 · 企业微信 · QQ · 通用Webhook
+          │  验签/解密 → 去重 → 有界队列 → 立即 ACK
           ▼
   ┌───────────────────────────────────────┐
   │  Go: chenxi（单进程，静态二进制）        │
@@ -72,6 +73,22 @@
 ```
 
 **关键设计**：Go 侧**不 import `os/exec`、不直接写业务文件**。所有副作用必须经过 UDS 交给 hostd，权限边界天然就是进程边界。这来自 Operit2 的 Host 契约，也顺带避开了 cgo 交叉编译的地狱。
+
+### 渠道接入（本次新增）
+
+四条双向 + 一条单向，全部零第三方依赖、纯标准库实现验签/解密：
+
+| 接入 | 验签 / 加密 | 回复方式 |
+|---|---|---|
+| 飞书自建应用 | Encrypt Key（AES-256-CBC）或 Verification Token | `im/v1/messages` 主动发消息 |
+| 企业微信自建应用 | SHA1 签名 + AES-256-CBC（PKCS7/32） | `cgi-bin/message/send` |
+| QQ 官方机器人 | Ed25519（`timestamp + 原始 body`） | `v2/{users,groups}/.../messages` |
+| 通用 Webhook | HMAC-SHA256 | `reply_url` 或通知出口 |
+| 通知出口（单向） | 平台自带 Webhook | 微信服务号推送 / 群机器人 / Bark |
+
+**微信**：个人微信没有官方 bot API，协议登录/Hook 违规且封号，晨曦明确不做。双向走企业微信（微信用户可进外部群），收通知走服务号推送。
+
+所有渠道默认关闭、密钥只走环境变量、未配验签凭据**拒绝启动**；回调 1~5 秒内先 ACK，后台并发 ≤2 异步处理并主动回消息；重复事件有界去重，队列满返回 503 让平台重试。完整配置见 [`deploy/channels.md`](deploy/channels.md)。
 
 ---
 
@@ -145,6 +162,8 @@ curl -s localhost:7788/v1/status          # 内存、事件数、技能数、Age
 
 硬件层面的 Armbian 调校（设备树、zram、禁服务、eMMC 保护）见 [`deploy/armbian-tuning.md`](deploy/armbian-tuning.md)。
 
+要接飞书 / 企业微信 / QQ / 通用 Webhook，或把晨报推到微信，见 [`deploy/channels.md`](deploy/channels.md)。渠道默认全关，改完 `config.json` 重启生效。
+
 ---
 
 ## DevOps
@@ -153,23 +172,25 @@ curl -s localhost:7788/v1/status          # 内存、事件数、技能数、Age
 
 | Workflow | 触发 | 做什么 |
 |---|---|---|
-| `ci.yml` | push / PR / 手动 | 架构护栏 → `go vet` + `go test` → `cargo check` + `cargo test` → 原生 `ubuntu-24.04-arm` runner 上 `make build-local` → 校验架构/体积/链接方式 → 上传 artifact（保留 14 天） |
+| `ci.yml` | push / PR / 手动 | 架构护栏 → `go vet` + `go test` → `cargo check` + `cargo test` → **真实起 hostd 跑 Go↔UDS 联调** → 原生 `ubuntu-24.04-arm` runner 上 `make build-local` → 校验架构/体积/链接方式 → 上传 artifact（保留 14 天） |
 | `release.yml` | `v*` tag / 手动 | 同样在 arm64 runner 上构建，打包 `tar.gz` + `SHA256SUMS`，自动创建 GitHub Release |
 | `nightly.yml` | 每周一 / 手动 | `go test -race`、`govulncheck`、`cargo test --release`，外加独立 arm64 job 做编译复核 |
 
-`scripts/check-guardrails.sh` 把「零第三方依赖 / 无 `os/exec` / 无 cgo / 禁用本地推理 / hostd 四层权限」变成 CI 里**会红的断言**；`scripts/verify-artifacts.sh` 检查产物确为 AArch64、体积未越预算、Go 产物为静态链接。dependabot 每周检查 Actions 版本（以及两套空依赖清单）。
+`scripts/check-guardrails.sh` 把「零第三方依赖 / 无 `os/exec` / 无 cgo / 禁用本地推理 / hostd 四层权限 / 渠道必须验签 / 联调必须纳入 CI」变成会红的断言；`scripts/integration-test.sh` 起真实 `chenxi-hostd` 进程跑 `read`/`exec`/四层拒绝/`ask→approve`/审计；`scripts/verify-artifacts.sh` 检查产物确为 AArch64、体积未越预算、Go 产物为静态链接。dependabot 每月只检查 Actions 版本（Go/Rust 零依赖，不扫空清单）。
 
-从 Release 取产物：
+从 Release 取产物（把 `VER` 换成 Releases 页最新版本号）：
 
 ```bash
-curl -LO https://github.com/rainrainrainbow/chenxi/releases/latest/download/chenxi-linux-arm64-v0.1.0.tar.gz
+VER=v0.1.0
+curl -LO https://github.com/rainrainrainbow/chenxi/releases/download/$VER/chenxi-linux-arm64-$VER.tar.gz
+curl -LO https://github.com/rainrainrainbow/chenxi/releases/download/$VER/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf chenxi-linux-arm64-v0.1.0.tar.gz
+tar -xzf chenxi-linux-arm64-$VER.tar.gz
 cd chenxi && cat README.md   # 按「部署到 Armbian」继续
 ```
 
-> 两个二进制的链接方式不同：`chenxi` 是纯 Go 静态链接；`chenxi-hostd` 由
-> `aarch64-linux-gnu-gcc` 链接，动态依赖目标系统自带的 glibc（Armbian 上有）。
+> 两个二进制链接方式不同：`chenxi` 是纯 Go 静态链接；`chenxi-hostd` 由
+> runner/板子上的系统 gcc 链接，动态依赖自带的 glibc（Armbian 上有）。
 
 ---
 
@@ -182,9 +203,11 @@ cd chenxi && cat README.md   # 按「部署到 Armbian」继续
 | `agents.json` | 璇玑式声明式 Agent，**改完自动热重载** |
 | `cmd/chenxi/main.go` | 装配、内存上限、信号退出 |
 | `internal/cx/*.go` | Gateway / Loop / Prompt / Agents / Team / Memory / Skill / Provider / Cron / HostClient |
+| `internal/cx/channel_*.go` | 渠道框架 + 飞书/企微/QQ/通用Webhook/通知出口 + 加解密原语 |
+| `internal/cx/*_test.go` | 单元测试 + Go↔hostd UDS 联调（环境变量 gate） |
 | `hostd/src/*.rs` | Operit2 式 Capability trait、四层权限、审计 |
-| `deploy/` | systemd unit 与 Armbian 调校指南 |
-| `scripts/` | CI 护栏与产物校验脚本 |
+| `deploy/` | systemd unit、Armbian 调校、渠道接入指南 |
+| `scripts/` | CI 护栏、产物校验、UDS 双进程联调 |
 | `.github/workflows/` | CI / Release / Nightly 三条流水线 |
 | `SECURITY.md` / `CONTRIBUTING.md` | 信任模型与贡献规矩 |
 | `DESIGN.md` | 为什么这么切、协议细节、不做什么 |
@@ -196,7 +219,8 @@ cd chenxi && cat README.md   # 按「部署到 Armbian」继续
 - ❌ 本地 LLM、Embedding、向量库（1 GB 放不下）
 - ❌ Electron / Flutter / Web UI / TUI 富终端（Chromium 与 Dart 引擎太重）
 - ❌ Node / Python 运行时、Docker、cgo、SQLite 动态链接
-- ❌ 多租户隔离：`SECURITY` 模型沿用 OpenClaw 的「单可信操作者」，别把 7788 端口直接开公网
+- ❌ 多租户隔离：`SECURITY` 模型沿用 OpenClaw 的「单可信操作者」；7788 只监听本机，用 HTTPS 反代**只**暴露 `/v1/channel/*`
+- ❌ 个人微信协议登录 / PC Hook：无官方 bot API、违规封号，用企业微信双向 + 服务号推送替代
 - ❌ 多设备 Space 同步：只保留 Operit2 的**权限边界**，不实现 Link/Peer 组网（1 GB 下收益不抵复杂度）
 
 ## 许可

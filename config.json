@@ -57,5 +57,50 @@
       "text": "给我一句今日简报：系统负载、剩余磁盘、待办条数。只读，不要执行写操作。",
       "target": "cli"
     }
-  ]
+  ],
+  "channels": {
+    "max_dedup": 256,
+    "reply_timeout_sec": 60,
+    "max_callback_bytes": 65536,
+    "feishu": {
+      "enabled": false,
+      "path": "/v1/channel/feishu",
+      "api_base": "https://open.feishu.cn",
+      "app_id_env": "CHENXI_FEISHU_APP_ID",
+      "app_secret_env": "CHENXI_FEISHU_APP_SECRET",
+      "encrypt_key_env": "CHENXI_FEISHU_ENCRYPT_KEY",
+      "verify_token_env": "",
+      "default_target": ""
+    },
+    "wecom": {
+      "enabled": false,
+      "path": "/v1/channel/wecom",
+      "api_base": "https://qyapi.weixin.qq.com",
+      "corp_id": "",
+      "agent_id": "",
+      "token_env": "CHENXI_WECOM_TOKEN",
+      "aes_key_env": "CHENXI_WECOM_AES_KEY",
+      "secret_env": "CHENXI_WECOM_SECRET",
+      "default_target": "@all"
+    },
+    "qq": {
+      "enabled": false,
+      "path": "/v1/channel/qq",
+      "api_base": "https://api.bot.qq.com",
+      "app_id_env": "CHENXI_QQ_APP_ID",
+      "secret_env": "CHENXI_QQ_SECRET",
+      "sandbox": false
+    },
+    "webhook": {
+      "enabled": false,
+      "path": "/v1/channel/webhook",
+      "secret_env": "CHENXI_WEBHOOK_SECRET"
+    },
+    "notify": {
+      "enabled": false,
+      "kind": "custom",
+      "url_env": "CHENXI_NOTIFY_URL",
+      "title": "晨曦"
+    }
+  }
 }

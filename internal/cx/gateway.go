@@ -15,17 +15,18 @@ import (
 )
 
 type App struct {
-	cfg     *Config
-	store   *Store
-	reg     *Registry
-	prov    *Provider
-	host    *HostClient
-	skills  *SkillBook
-	cron    *Cron
-	system  string
-	mu      sync.Mutex // 单一写者：所有入站串行进入 Agent Loop
-	sem     chan struct{}
-	started time.Time
+	cfg      *Config
+	store    *Store
+	reg      *Registry
+	prov     *Provider
+	host     *HostClient
+	skills   *SkillBook
+	cron     *Cron
+	channels *ChannelManager
+	system   string
+	mu       sync.Mutex // 单一写者：所有入站串行进入 Agent Loop
+	sem      chan struct{}
+	started  time.Time
 }
 
 func New(cfg *Config) (*App, error) {
@@ -65,6 +66,11 @@ func New(cfg *Config) (*App, error) {
 		started: time.Now(),
 	}
 	a.cron = NewCron(cfg.Cron, a)
+	channels, err := NewChannelManager(a)
+	if err != nil {
+		return nil, fmt.Errorf("渠道装配失败：%w", err)
+	}
+	a.channels = channels
 	return a, nil
 }
 
@@ -80,6 +86,9 @@ func (a *App) Serve(ctx context.Context) error {
 	mux.HandleFunc("/v1/status", a.handleStatus)
 	mux.HandleFunc("/v1/message", a.handleMessage)
 	mux.HandleFunc("/v1/approve", a.handleApprove)
+	if a.channels != nil {
+		a.channels.ServeRoutes(mux)
+	}
 	srv := &http.Server{
 		Addr:              a.cfg.Listen,
 		Handler:           mux,
@@ -178,7 +187,23 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"hostd_ok":      hostOK,
 		"concurrency":   cap(a.sem),
 		"local_llm":     false,
+		"channels":      a.channelNames(),
+		"channel_queue": a.channelQueueLen(),
 	})
+}
+
+func (a *App) channelNames() []string {
+	if a.channels == nil {
+		return []string{}
+	}
+	return a.channels.Enabled()
+}
+
+func (a *App) channelQueueLen() int {
+	if a.channels == nil {
+		return 0
+	}
+	return a.channels.QueueLen()
 }
 
 func (a *App) RunCLI(ctx context.Context) {

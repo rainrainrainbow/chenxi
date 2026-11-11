@@ -63,6 +63,7 @@ type Config struct {
 	Budgets      Budgets        `json:"budgets"`
 	Scenes       []Scene        `json:"scenes"`
 	Cron         []CronJob      `json:"cron"`
+	Channels     ChannelsConfig `json:"channels"`
 }
 
 func setInt(p *int, def int) {
@@ -125,6 +126,7 @@ func LoadConfig(path string) (*Config, error) {
 	setInt(&c.Budgets.MaxSubagentChars, 4000)
 	setInt64(&c.Budgets.MaxLogBytes, 268435456)
 	setInt64(&c.Budgets.MaxSnapshotBytes, 33554432)
+	applyChannelDefaults(&c.Channels)
 
 	// 硬护栏：这块板子不允许超过 2 路并发，不允许本地推理。
 	if c.Budgets.MaxConcurrency > 2 {

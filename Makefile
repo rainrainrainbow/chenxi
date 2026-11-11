@@ -3,7 +3,7 @@ CARGO ?= cargo
 DIST := dist
 AARCH64_TARGET := aarch64-unknown-linux-gnu
 
-.PHONY: all build build-arm64 build-local rust-arm64 rust-local test fmt clean
+.PHONY: all build build-arm64 build-local rust-arm64 rust-local test test-integration fmt clean
 
 all: build-local
 
@@ -36,6 +36,10 @@ test:
 	$(GO) vet ./...
 	$(GO) test ./...
 	cd hostd && $(CARGO) check
+
+## 起真实 chenxi-hostd 进程，跑 Go ↔ UDS 端到端（CI 也用这条）
+test-integration:
+	bash scripts/integration-test.sh
 
 $(DIST):
 	mkdir -p $(DIST)

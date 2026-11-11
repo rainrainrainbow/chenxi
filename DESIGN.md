@@ -129,3 +129,47 @@ Unix Domain Socket：`/run/chenxi/hostd.sock`。**每行一个扁平 JSON 对象
 - Go 侧仅用标准库，Rust 侧仅用 `std`，`go.mod` 无 `require`、`Cargo.toml` 无 `[dependencies]`。
 - Go 侧不需要 cgo、Rust 侧零 crate；推荐在 aarch64 主机（Armbian 板子或 GitHub `ubuntu-24.04-arm` runner）上 `make build-local` 原生编译，避开 x86 → aarch64 交叉链接器的 sysroot 差异。离线也能在板子上编译。
 - **本次只交付源码与设计，未在真机烧录、未压测、未做安全审计**；内存数字是设计预算，不是实测值。上板后请用 `systemctl status` + `ps -o rss` + `free -m` 实测并回写 `config.json` 的 budgets。
+
+---
+
+## 九、渠道接入
+
+### 为什么是「先 ACK，再异步回复」
+
+飞书 challenge 要求 1 秒内回显，企微 5 秒收不到就断连重试，QQ 回调同样有超时；而 Agent Loop 里一次云端模型调用经常十几秒。把 LLM 挡在回调里必然超时重试，重试又会造成重复回复。所以：
+
+```
+回调 → 验签/解密 → 去重 → 入有界队列 → 立即 200
+                                  ↓ worker（数量 = max_concurrency ≤ 2）
+                        App.Handle → 平台 OpenAPI 主动发消息
+```
+
+Go 侧不新增长连接、不维护 per-user 会话状态、不落平台消息体，只留一个 256 条的去重集合与容量 4 的队列。队列满时返回 `503 + Retry-After`，且**故意不记去重键**，让平台重试时还有机会入队。
+
+### 零依赖的验签矩阵
+
+| 平台 | 算法 | 用到的标准库 |
+|---|---|---|
+| 飞书 | `SHA256(EncryptKey)` → AES-256-CBC，IV 在密文前 16 字节；或 Verification Token 常量比对 | `crypto/sha256` `crypto/aes` `crypto/cipher` |
+| 企业微信 | `sha1(sort(token,ts,nonce,encrypt))`；`Base64Decode(AESKey+"=")` → AES-256-CBC，IV = key[:16]，PKCS7/32；明文 `16B+4B大端长度+XML+receiveid` | `crypto/sha1` `crypto/aes` `encoding/xml` |
+| QQ | Bot Secret 重复填充成 32 字节 Ed25519 seed；验签体 `timestamp + 原始 body`；回调验证签 `event_ts + plain_token` | `crypto/ed25519` |
+| 通用 Webhook | `HMAC-SHA256(secret, raw body)` | `crypto/hmac` |
+
+**不变式**：未配置验签凭据的渠道拒绝启动；所有渠道只做「验签/握手 → 提取文本 → 回复」，不得 import `os/exec`、不得直接调 `Provider.Chat`；入站一律经 `App.Handle` 清洗。护栏脚本把这三条做成 CI 断言。
+
+### 渠道也是 1 GB 预算的一部分
+
+- worker 数量与 Agent Loop 共享 `max_concurrency`，不另起线程池；
+- `tokenCache` 单飞取平台 access_token（有效期 7200s，提前 5 分钟刷新），不重复请求；
+- 所有平台调用走同一个带超时的 `http.Client`，响应体有上限；
+- 审计只记参数长度，不记消息原文；通知 URL、密钥全走环境变量。
+
+### 微信的诚实边界
+
+个人微信没有官方 bot API，iPad 协议 / PC Hook 违规且封号。晨曦的「微信」= **企业微信自建应用**（微信用户可进外部群，双向）+ **服务号推送出口**（Server 酱 / PushPlus，单向）。这不是待办，是明确不做。
+
+### UDS 联调补上了什么
+
+上一版只做静态语法检查，两个进程能不能真配合没验证。本次已把 `scripts/integration-test.sh` 编排进 CI：它会编译并启动真实 `chenxi-hostd`，用 Go 侧 `HostClient` 走完整协议（本地沙盒缺 Go/Rust 工具链，待推送后由 Actions 实际执行）：ping / list / read / exec / 路径穿越拒绝 / shell 元字符拒绝 / 非白名单命令拒绝 / readonly 写拒绝 / Host 白名单拒绝 / `deny` / `ask → approve → token 一次性 → 文件落盘` / 审计日志非空且不泄露参数原文。顺带修了一个真实缺陷：`approve` 回放路径原先绕过 `active` 并发闸，现已把并发计数移入 `execute()` 覆盖全部执行路径，并给待审批 token 加 5 分钟过期清理。
+
+**仍未验证**：三家平台的真实线上回调（需要你的应用凭据与公网域名）、平台限流与重试行为、QQ 审核流程、S905M 真机。协议字段按各家官方文档实现，但没做过真实平台联调。

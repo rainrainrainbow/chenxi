@@ -9,6 +9,8 @@
 - [ ] 没有启用本地推理 / cgo / GUI
 - [ ] `config.json` 的硬预算未被放宽（并发 ≤2、Go 堆 ≤256 MiB）
 - [ ] 新增能力先考虑做成 hostd capability 或技能，而不是往 Agent Loop 堆分支
+- [ ] 改渠道时：验签/解密在最前、回调只 ACK 不阻塞、密钥只走环境变量、入站经 `Submit → App.Handle`
+- [ ] 改 hostd 时跑过 `make test-integration`（真实双进程联调）
 
 ## 验证
 

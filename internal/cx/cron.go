@@ -61,6 +61,11 @@ func (c *Cron) check(now time.Time) {
 			}
 			log.Printf("cron %s -> %s", job.ID, truncate(reply, 200))
 			_ = c.app.store.Append("cron", job.ID+": "+reply, map[string]string{"target": job.Target})
+			if job.Target == "notify" && c.app.channels != nil {
+				if err := c.app.channels.Notify(ctx, "晨曦 · "+job.ID, reply); err != nil {
+					log.Printf("cron %s 通知推送失败：%v", job.ID, err)
+				}
+			}
 		}(j)
 	}
 }

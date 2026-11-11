@@ -21,6 +21,7 @@ const MAX_LINE: usize = 65536;
 
 struct Pending {
     req: Flat,
+    created: u64,
 }
 
 struct Server {
@@ -128,17 +129,24 @@ impl Server {
             _ => return Server::reply(id, false, "", "unknown op"),
         }
 
+        self.execute(req)
+    }
+
+    // 所有执行路径（含 approve 回放）都必须经过这道并发闸，
+    // 避免审批分支绕过 max_workers 限制。
+    fn execute(&self, req: &Flat) -> Flat {
+        let id = req.get("id").map(|s| s.as_str()).unwrap_or("");
         let n = self.active.fetch_add(1, Ordering::SeqCst);
         if n >= self.max_workers {
             self.active.fetch_sub(1, Ordering::SeqCst);
             return Server::reply(id, false, "", "hostd busy");
         }
-        let out = self.execute(req);
+        let out = self.dispatch(req);
         self.active.fetch_sub(1, Ordering::SeqCst);
         out
     }
 
-    fn execute(&self, req: &Flat) -> Flat {
+    fn dispatch(&self, req: &Flat) -> Flat {
         let id = req.get("id").map(|s| s.as_str()).unwrap_or("");
         let cap_name = req.get("cap").map(|s| s.as_str()).unwrap_or("");
         let op = req.get("op").map(|s| s.as_str()).unwrap_or("");
@@ -161,10 +169,18 @@ impl Server {
                 .as_secs();
             let token = format!("ap-{}-{}", secs, self.seq.fetch_add(1, Ordering::SeqCst));
             if let Ok(mut g) = self.pending.lock() {
+                // 5 分钟未确认的 token 自动失效，防止 1 GB 机器上无限堆积。
+                g.retain(|_, p| secs.saturating_sub(p.created) < 300);
                 if g.len() > 64 {
                     g.clear();
                 }
-                g.insert(token.clone(), Pending { req: req.clone() });
+                g.insert(
+                    token.clone(),
+                    Pending {
+                        req: req.clone(),
+                        created: secs,
+                    },
+                );
             }
             self.audit.log(req, false, "awaiting approval");
             return Server::reply(id, false, &token, "approval_required");

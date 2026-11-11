@@ -56,4 +56,31 @@ for pat in 'approval == "deny"' 'host allowlist' 'cap.check(mode' 'cap.run(arg';
 done
 ok "hostd 四层权限链路完整"
 
+# 7. 渠道适配器：只做验签与文本提取，不持能力
+if grep -Rqs --include='channel_*.go' '"os/exec"' internal/cx; then
+  fail "渠道适配器出现 os/exec：所有副作用必须仍走 hostd"
+fi
+ok "渠道适配器无副作用能力"
+
+if grep -Rqs --include='channel_*.go' '\.Chat(' internal/cx; then
+  fail "渠道绕过了 App.Handle，直接调用模型"
+fi
+ok "所有渠道经 Gateway 单一入口"
+
+# 8. 四家接入的验签/解密原语必须齐备（缺一个就等于裸奔公网）
+for pat in 'ed25519.Verify' 'wecomSignature' 'hmacSHA256Hex' 'decryptFeishu' 'decryptWecom'; do
+  grep -Rqs --include='*.go' "$pat" internal/cx || fail "渠道验签/解密实现缺失：$pat"
+done
+ok "飞书 / 企微 / QQ / 通用 Webhook 验签链路齐备"
+
+grep -q 'json:"app_secret_env"' internal/cx/channel_config.go \
+  || fail "渠道配置丢失「密钥只写环境变量名」的约定"
+ok "渠道密钥只走环境变量"
+
+# 9. UDS 双进程联调必须存在且被 CI 调用
+[[ -f scripts/integration-test.sh ]] || fail "缺少 UDS 联调脚本"
+grep -q 'TestIntegrationUDS' scripts/integration-test.sh || fail "联调脚本未调用集成测试"
+grep -q 'integration' .github/workflows/ci.yml || fail "CI 未编排 UDS 联调 job"
+ok "Go ↔ hostd 联调已纳入 CI"
+
 echo "[晨曦架构护栏] 全部通过"

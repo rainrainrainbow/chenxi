@@ -46,6 +46,25 @@ jobs:
           cargo check --all-targets
           cargo test --all-targets
 
+  integration:
+    name: Go ↔ hostd 真实 UDS 联调
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # 启动真实 chenxi-hostd 进程，用 Go 侧 HostClient 走 UDS 协议：
+      # read / exec / 四层权限拒绝 / ask→approve→一次性 token / 审计日志。
+      - name: 双进程端到端
+        run: bash scripts/integration-test.sh
+
   build-arm64:
     name: 原生 arm64 编译产物
     needs: verify
