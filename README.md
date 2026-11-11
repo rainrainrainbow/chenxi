@@ -100,6 +100,11 @@
 `ubuntu-24.04-arm` runner 上编译，去 [Actions artifacts](https://github.com/rainrainrainbow/chenxi/actions)
 或 [Releases](https://github.com/rainrainrainbow/chenxi/releases) 下载即可。
 
+> **板子上 `make build-local` 报 `go: not found`？** 说明系统没装 Go（也基本没装
+> Rust）。1 GB RAM / 16 GB eMMC 上装两套工具链既占空间又吃内存，**没必要**——
+> 直接跳到下面「从 Release 取产物」那段，把现成的二进制 `scp` 过来就行。
+> 确实想在本机编译的话，见文末「在板子上装工具链」。
+
 在 **aarch64 主机**（Armbian 板子 / arm64 runner）上原生编译，最省事：
 
 ```bash
@@ -178,15 +183,22 @@ curl -s localhost:7788/v1/status          # 内存、事件数、技能数、Age
 
 `scripts/check-guardrails.sh` 把「零第三方依赖 / 无 `os/exec` / 无 cgo / 禁用本地推理 / hostd 四层权限 / 渠道必须验签 / 联调必须纳入 CI」变成会红的断言；`scripts/integration-test.sh` 起真实 `chenxi-hostd` 进程跑 `read`/`exec`/四层拒绝/`ask→approve`/审计；`scripts/verify-artifacts.sh` 检查产物确为 AArch64、体积未越预算、Go 产物为静态链接。dependabot 每月只检查 Actions 版本（Go/Rust 零依赖，不扫空清单）。
 
-从 Release 取产物（把 `VER` 换成 Releases 页最新版本号）：
+从 Release 取产物（`VER` 以 [Releases 页](https://github.com/rainrainrainbow/chenxi/releases) 最新版本号为准）：
 
 ```bash
-VER=v0.1.0
+VER=v0.2.0
 curl -LO https://github.com/rainrainrainbow/chenxi/releases/download/$VER/chenxi-linux-arm64-$VER.tar.gz
 curl -LO https://github.com/rainrainrainbow/chenxi/releases/download/$VER/SHA256SUMS
 sha256sum -c SHA256SUMS
 tar -xzf chenxi-linux-arm64-$VER.tar.gz
-cd chenxi && cat README.md   # 按「部署到 Armbian」继续
+cd chenxi && ls -lh chenxi chenxi-hostd
+```
+
+板子上已经有 `~/chenxi` 源码目录的话，把两个二进制覆盖过去即可，不用再编译：
+
+```bash
+cd ~/chenxi
+sudo install -m 0755 /path/to/chenxi /path/to/chenxi-hostd /usr/local/bin/
 ```
 
 > 两个二进制链接方式不同：`chenxi` 是纯 Go 静态链接；`chenxi-hostd` 由
@@ -222,6 +234,44 @@ cd chenxi && cat README.md   # 按「部署到 Armbian」继续
 - ❌ 多租户隔离：`SECURITY` 模型沿用 OpenClaw 的「单可信操作者」；7788 只监听本机，用 HTTPS 反代**只**暴露 `/v1/channel/*`
 - ❌ 个人微信协议登录 / PC Hook：无官方 bot API、违规封号，用企业微信双向 + 服务号推送替代
 - ❌ 多设备 Space 同步：只保留 Operit2 的**权限边界**，不实现 Link/Peer 组网（1 GB 下收益不抵复杂度）
+
+---
+
+## 在板子上装工具链（可选）
+
+`make build-local` 报 `go: not found` 就是缺这一步。**通常不需要**——直接用上面的 Release 产物更快。真要本机编译：
+
+`go.mod` 要求 **Go ≥ 1.21**；Debian bookworm 的 `apt install golang-go` 只给 1.19，版本不够，所以装官方 arm64 tarball：
+
+```bash
+# 版本号以 https://go.dev/dl/ 为准，下面这个版本确定满足 go 1.21
+curl -LO https://go.dev/dl/go1.22.12.linux-arm64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.22.12.linux-arm64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
+source /etc/profile.d/go.sh
+go version          # 必须 ≥ go1.21
+```
+
+Rust 侧零 crate，minimal profile 就够：
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+source "$HOME/.cargo/env"
+cargo --version
+```
+
+然后回到源码目录：
+
+```bash
+cd ~/chenxi
+make build-local
+ls -lh dist/chenxi dist/chenxi-hostd
+```
+
+> 国内网络拉 `go.dev` / `sh.rustup.rs` 慢的话，换成对应镜像站，或者干脆在开发机下好产物
+> `scp` 到板子。1 GB RAM 上首次编译 Go 标准库约需几百 MB，建议先开 zram（见
+> [`deploy/armbian-tuning.md`](deploy/armbian-tuning.md)），避免 OOM。
 
 ## 许可
 
