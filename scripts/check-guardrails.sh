@@ -68,10 +68,20 @@ fi
 ok "所有渠道经 Gateway 单一入口"
 
 # 8. 四家接入的验签/解密原语必须齐备（缺一个就等于裸奔公网）
-for pat in 'ed25519.Verify' 'wecomSignature' 'hmacSHA256Hex' 'decryptFeishu' 'decryptWecom'; do
+for pat in 'ed25519.Verify' 'wecomSignature' 'hmacSHA256Hex' 'decryptFeishu' 'decryptWecom' 'Authorization.*Bearer'; do
   grep -Rqs --include='*.go' "$pat" internal/cx || fail "渠道验签/解密实现缺失：$pat"
 done
-ok "飞书 / 企微 / QQ / 通用 Webhook 验签链路齐备"
+ok "飞书 / 企微 / QQ / 通用 Webhook / 微信网关 验签链路齐备"
+
+# 微信网关适配器不得把 Node 运行时或附件文件搬进本机，也不得自己实现微信协议
+if grep -qs 'ilink/bot/' internal/cx/channel_weixin.go; then
+  fail "晨曦不得直接实现 iLink 协议：协议部分交给外部网关"
+fi
+grep -q '不实现微信协议' internal/cx/channel_weixin.go \
+  || fail "微信网关适配器缺少边界声明"
+grep -q 'shared_secret_env' internal/cx/channel_config.go \
+  || fail "微信网关缺少共享密钥配置"
+ok "微信网关仅做外部 HTTP 对接，协议与运行时留在旁路"
 
 grep -q 'json:"app_secret_env"' internal/cx/channel_config.go \
   || fail "渠道配置丢失「密钥只写环境变量名」的约定"

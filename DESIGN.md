@@ -154,6 +154,8 @@ Go 侧不新增长连接、不维护 per-user 会话状态、不落平台消息�
 | 企业微信 | `sha1(sort(token,ts,nonce,encrypt))`；`Base64Decode(AESKey+"=")` → AES-256-CBC，IV = key[:16]，PKCS7/32；明文 `16B+4B大端长度+XML+receiveid` | `crypto/sha1` `crypto/aes` `encoding/xml` |
 | QQ | Bot Secret 重复填充成 32 字节 Ed25519 seed；验签体 `timestamp + 原始 body`；回调验证签 `event_ts + plain_token` | `crypto/ed25519` |
 | 通用 Webhook | `HMAC-SHA256(secret, raw body)` | `crypto/hmac` |
+| 微信网关 | `Authorization: Bearer <共享密钥>` 常量时间比对 | `crypto/subtle` |
+| 微信 iLink 协议 | **不在晨曦内**：由外部网关负责 | — |
 
 **不变式**：未配置验签凭据的渠道拒绝启动；所有渠道只做「验签/握手 → 提取文本 → 回复」，不得 import `os/exec`、不得直接调 `Provider.Chat`；入站一律经 `App.Handle` 清洗。护栏脚本把这三条做成 CI 断言。
 
@@ -166,10 +168,18 @@ Go 侧不新增长连接、不维护 per-user 会话状态、不落平台消息�
 
 ### 微信的诚实边界
 
-个人微信没有官方 bot API，iPad 协议 / PC Hook 违规且封号。晨曦的「微信」= **企业微信自建应用**（微信用户可进外部群，双向）+ **服务号推送出口**（Server 酱 / PushPlus，单向）。这不是待办，是明确不做。
+上一版写过「个人微信没有官方 bot API、明确不做」，这个说法太绝对，本次按参考仓库做了修正：微信开放社区确有 [clawbot 相关接口](https://developers.weixin.qq.com/doc/aispeech/knowledge/openapi/Clawbotrelated.html) 文档（二维码登录、状态轮询、通道重置），`ilinkai.weixin.qq.com` 是腾讯域名；但该文档未说明适用范围、接入资格与自动化回复授权，同时有权威分析明确反驳「官方开放个人微信 Bot、合法无封号」的营销叙事，并援引《微信软件许可及服务协议》对第三方自动化操作的禁止条款。
+
+所以晨曦的「微信」有三层：
+
+1. **合规首选**：企业微信自建应用（微信用户可进外部群，双向）+ 服务号推送出口（单向）。
+2. **可选旁路**：参考 [xuanji-weixin-gateway](https://github.com/huangyong7878/xuanji-weixin-gateway) 的 `callback` 模式，加一个零依赖 HTTP 适配器。扫码登录 / `getupdates` 长轮询 / `bot_token` / 附件落盘全留在**外部机器**，晨曦只验 Bearer 共享密钥、归一化事件、调 `/send` 回 `context_token`。默认关闭、合规自担。
+3. **明确不做**：协议逆向（iPad 协议）、PC Hook、DLL 注入，以及把 Node ≥22 + `better-sqlite3` 搬上 1 GB 的 S905M。
+
+这是对「参考一下」的保守回应：**借鉴它的上游中立设计与幂等契约，不引入它的运行时**。
 
 ### UDS 联调补上了什么
 
 上一版只做静态语法检查，两个进程能不能真配合没验证。本次已把 `scripts/integration-test.sh` 编排进 CI：它会编译并启动真实 `chenxi-hostd`，用 Go 侧 `HostClient` 走完整协议（本地沙盒缺 Go/Rust 工具链，待推送后由 Actions 实际执行）：ping / list / read / exec / 路径穿越拒绝 / shell 元字符拒绝 / 非白名单命令拒绝 / readonly 写拒绝 / Host 白名单拒绝 / `deny` / `ask → approve → token 一次性 → 文件落盘` / 审计日志非空且不泄露参数原文。顺带修了一个真实缺陷：`approve` 回放路径原先绕过 `active` 并发闸，现已把并发计数移入 `execute()` 覆盖全部执行路径，并给待审批 token 加 5 分钟过期清理。
 
-**仍未验证**：三家平台的真实线上回调（需要你的应用凭据与公网域名）、平台限流与重试行为、QQ 审核流程、S905M 真机。协议字段按各家官方文档实现，但没做过真实平台联调。
+**仍未验证**：飞书 / 企业微信 / QQ 的真实线上回调、外部微信网关的扫码登录与投递、平台限流与重试行为、QQ 审核流程、S905M 真机。协议字段按各家官方文档与参考仓库 README 实现，但没做过真实平台联调。微信网关的 `callback` 非 2xx 重试行为在参考仓库 README 中未承诺，过载时可能丢消息；`inbox` 拉取模式是可能的后续扩展，当前未实现。

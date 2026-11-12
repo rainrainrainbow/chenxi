@@ -96,6 +96,13 @@
       "path": "/v1/channel/webhook",
       "secret_env": "CHENXI_WEBHOOK_SECRET"
     },
+    "weixin_gateway": {
+      "enabled": false,
+      "path": "/v1/channel/weixin",
+      "gateway_base": "http://127.0.0.1:8787",
+      "send_path": "/send",
+      "shared_secret_env": "CHENXI_WEIXIN_SHARED_SECRET"
+    },
     "notify": {
       "enabled": false,
       "kind": "custom",

@@ -24,7 +24,7 @@ cd hostd && cargo check --all-targets && cargo test
 make test-integration     # 起真实 chenxi-hostd，跑 Go ↔ UDS 端到端
 ```
 
-新增渠道时：验签/解密放在 `Handle` 最前面，回调里绝不阻塞等模型；所有文本经 `ChannelManager.Submit` → `App.Handle`；密钥只写环境变量名；平台调用复用 `mgr.doJSON` 与 `tokenCache`。个人微信协议登录不接受 PR。
+新增渠道时：验签/解密放在 `Handle` 最前面，回调里绝不阻塞等模型；所有文本经 `ChannelManager.Submit` → `App.Handle`；密钥只写环境变量名；平台调用复用 `mgr.doJSON` 与 `tokenCache`。个人微信协议逆向 / PC Hook 不接受 PR；ClawBot/iLink 协议实现请留在外部网关仓库，晨曦这边只收 HTTP 适配器。
 
 交叉编译（需要 `gcc-aarch64-linux-gnu` 与 Rust 的
 `aarch64-unknown-linux-gnu` target）：

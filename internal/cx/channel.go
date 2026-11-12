@@ -101,6 +101,12 @@ func NewChannelManager(app *App) (*ChannelManager, error) {
 		}
 		m.register(cfg.Webhook.Path, newWebhookChannel(m, &cfg.Webhook))
 	}
+	if cfg.WeixinGateway.Enabled {
+		if err := validateWeixinGateway(&cfg.WeixinGateway); err != nil {
+			return nil, err
+		}
+		m.register(cfg.WeixinGateway.Path, newWeixinChannel(m, &cfg.WeixinGateway))
+	}
 
 	if len(m.routes) > 0 {
 		for i := 0; i < app.cfg.Budgets.MaxConcurrency; i++ {

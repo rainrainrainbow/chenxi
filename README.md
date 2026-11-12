@@ -51,7 +51,7 @@
 ## 架构
 
 ```
-  CLI · HTTP · 飞书 · 企业微信 · QQ · 通用Webhook
+  CLI · HTTP · 飞书 · 企业微信 · QQ · 通用Webhook · 微信(外部网关)
           │  验签/解密 → 去重 → 有界队列 → 立即 ACK
           ▼
   ┌───────────────────────────────────────┐
@@ -84,9 +84,10 @@
 | 企业微信自建应用 | SHA1 签名 + AES-256-CBC（PKCS7/32） | `cgi-bin/message/send` |
 | QQ 官方机器人 | Ed25519（`timestamp + 原始 body`） | `v2/{users,groups}/.../messages` |
 | 通用 Webhook | HMAC-SHA256 | `reply_url` 或通知出口 |
+| 微信（外部网关） | `Authorization: Bearer` 共享密钥 | 回调外部网关 `/send`，带 `context_token` |
 | 通知出口（单向） | 平台自带 Webhook | 微信服务号推送 / 群机器人 / Bark |
 
-**微信**：个人微信没有官方 bot API，协议登录/Hook 违规且封号，晨曦明确不做。双向走企业微信（微信用户可进外部群），收通知走服务号推送。
+**微信**：协议逆向 / PC Hook 明确不做。合规双向首选企业微信（微信用户可进外部群），收通知走服务号推送。此外参考 [xuanji-weixin-gateway](https://github.com/huangyong7878/xuanji-weixin-gateway) 新增了**可选的外部网关适配器**：晨曦只做零依赖 HTTP 客户端，扫码登录与 `getupdates` 长轮询交给旁路 Node 服务；该通道的适用范围与自动化授权在官方文档中未明示，**默认关闭、风险自担**，详见 [`deploy/channels.md`](deploy/channels.md)。
 
 所有渠道默认关闭、密钥只走环境变量、未配验签凭据**拒绝启动**；回调 1~5 秒内先 ACK，后台并发 ≤2 异步处理并主动回消息；重复事件有界去重，队列满返回 503 让平台重试。完整配置见 [`deploy/channels.md`](deploy/channels.md)。
 
@@ -186,7 +187,7 @@ curl -s localhost:7788/v1/status          # 内存、事件数、技能数、Age
 从 Release 取产物（`VER` 以 [Releases 页](https://github.com/rainrainrainbow/chenxi/releases) 最新版本号为准）：
 
 ```bash
-VER=v0.2.0
+VER=v0.3.0
 curl -LO https://github.com/rainrainrainbow/chenxi/releases/download/$VER/chenxi-linux-arm64-$VER.tar.gz
 curl -LO https://github.com/rainrainrainbow/chenxi/releases/download/$VER/SHA256SUMS
 sha256sum -c SHA256SUMS
@@ -232,7 +233,7 @@ sudo install -m 0755 /path/to/chenxi /path/to/chenxi-hostd /usr/local/bin/
 - ❌ Electron / Flutter / Web UI / TUI 富终端（Chromium 与 Dart 引擎太重）
 - ❌ Node / Python 运行时、Docker、cgo、SQLite 动态链接
 - ❌ 多租户隔离：`SECURITY` 模型沿用 OpenClaw 的「单可信操作者」；7788 只监听本机，用 HTTPS 反代**只**暴露 `/v1/channel/*`
-- ❌ 个人微信协议登录 / PC Hook：无官方 bot API、违规封号，用企业微信双向 + 服务号推送替代
+- ❌ 个人微信协议逆向 / PC Hook / DLL 注入：违反《微信软件许可及服务协议》，晨曦不实现；可选旁路是外部 ClawBot/iLink 网关适配器（默认关闭、合规自担），合规首选仍是企业微信双向 + 服务号推送
 - ❌ 多设备 Space 同步：只保留 Operit2 的**权限边界**，不实现 Link/Peer 组网（1 GB 下收益不抵复杂度）
 
 ---

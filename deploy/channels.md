@@ -10,10 +10,11 @@
 | **企业微信** | ✅ | 自建应用「接收消息」回调 + 应用消息接口 | 微信用户可加入企微外部群，这是「微信」的合规双向路径 |
 | **QQ** | ✅ | QQ 开放平台官方机器人（Webhook 模式） | 需企业主体、IP 白名单、审核；沙箱环境可先测 |
 | **通用 Webhook** | ✅ | 自定义 HMAC-SHA256 回调 | 接 n8n / Home Assistant / Telegram 桥 / 自建前端 |
+| **微信（外部网关）** | ✅（可选） | 旁路 ClawBot/iLink 网关 + 晨曦 HTTP 适配器 | 见第九节；默认关闭、合规自担 |
 | **通知出口** | 单向 | Server 酱 / PushPlus（微信服务号推送）、群机器人、Bark | 把晨报与告警推到微信 |
-| **个人微信协议登录** | ❌ | — | 无官方 bot API；iPad 协议 / PC Hook 违规且封号，晨曦明确不做 |
+| **协议逆向 / PC Hook** | ❌ | — | iPad 协议、DLL 注入违反《微信软件许可及服务协议》，晨曦明确不做 |
 
-网上流传的「微信个人号 Bot API」未见官方文档支持，本项目不纳入。要双向对话就用企业微信，要收通知就用服务号推送。
+关于「微信个人号 Bot API」：微信开放社区确有 [clawbot 相关接口](https://developers.weixin.qq.com/doc/aispeech/knowledge/openapi/Clawbotrelated.html) 文档（二维码登录、状态轮询、通道重置），`ilinkai.weixin.qq.com` 也是腾讯域名；但该文档**未说明适用范围、接入资格与自动化回复授权**，同时有权威分析明确反驳「官方开放个人微信 Bot、合法无封号」的营销叙事。晨曦不替你做这个判断：**协议逆向不做**，ClawBot 旁路可选但默认关闭，启用前请自行核对条款并承担账号风险。合规首选永远是企业微信双向 + 服务号推送。
 
 ---
 
@@ -170,10 +171,120 @@ bash scripts/check-guardrails.sh
 make test-integration        # Go ↔ hostd 真实联调，与渠道无关但一起跑
 ```
 
-**仍然未验证**：三家平台的真实线上回调（需要你的应用凭据与公网域名）、平台限流与重试行为、QQ 审核流程。代码里的协议字段按各家官方文档实现，但**没有真机/真实平台联调过**。
+**仍然未验证**：三家平台的真实线上回调（需要你的应用凭据与公网域名）、平台限流与重试行为、QQ 审核流程，以及第九节微信网关的真实扫码登录。代码里的协议字段按各家官方文档实现，但**没有真机/真实平台联调过**。
+
+---
+
+## 九、微信（参考 xuanji-weixin-gateway 的可选旁路）
+
+### 参考了什么、不照搬什么
+
+参考仓库：[huangyong7878/xuanji-weixin-gateway](https://github.com/huangyong7878/xuanji-weixin-gateway)（MIT，v0.2.6，Node ≥22 + `better-sqlite3`）。它是一个**上游中立的独立网关**：扫码登录拿 `bot_token` → `ilink/bot/getupdates` 长轮询 → 把消息归一化成统一事件 → 回调或 inbox 投递给 Agent → Agent 调 `/send` 回复。
+
+| 值得借鉴 | 不照搬 |
+|---|---|
+| `callback` / `inbox` 双投递模式 | **Node 运行时 + 原生 SQLite 模块**：1 GB S905M 上常驻开销太高，与晨曦「不引入 Node」冲突 |
+| `event_id` 幂等去重（`account_id + event_id`） | 附件落盘（`attachments[].path` 是网关机器绝对路径，晨曦读不到） |
+| `context_token` 回复必须原样带回 | 扫码登录 / 账号持久化 / 轮询状态机 |
+| `claim → complete / fail` 的任务生命周期 | 直接实现 `ilink/bot/*` 协议（合规与维护成本都留给旁路） |
+| `expired` 账号状态、`typing` 指示 | 5 秒轮询节奏（晨曦保持事件驱动，不新增常驻轮询） |
+
+**结论：网关跑在另一台机器上，晨曦只做零依赖 HTTP 客户端。**
+
+```
+[微信] ←→ [外部机器: weixin-gateway (Node)] ←→ [S905M: 晨曦 /v1/channel/weixin]
+                    ↑ POST /send（带 context_token）        ↓
+                    └──────────── 回复 ──────────────────────┘
+```
+
+### 合规边界（必读）
+
+微信开放社区有 [clawbot 相关接口](https://developers.weixin.qq.com/doc/aispeech/knowledge/openapi/Clawbotrelated.html) 文档，但**只列了 3 个接口，没有适用范围、接入资格、免责或「允许自动化回复」的说明**；同时有权威分析指出「腾讯官方开放个人微信 Bot API、合法无封号」是失实叙事，并援引《微信软件许可及服务协议》对第三方自动化操作的禁止条款，以及微信安全中心 2025-04 的打击公告。
+
+因此晨曦的立场：
+
+- 默认 `enabled: false`，**不替你判断合规性**；
+- 不实现协议逆向 / Hook / DLL 注入；
+- 启用前请自行核对最新条款、确认账号资格，并承担封号等风险（可能连带微信支付与聊天记录）；
+- 要零风险就用企业微信双向 + 服务号推送。
+
+### 部署
+
+**外部机器**（PC / 小主机 / 云，Node ≥22）：
+
+```bash
+npm install -g @bryanhuang7878/weixin-gateway
+
+export WEIXIN_GATEWAY_DELIVERY_MODE=callback
+export UPSTREAM_BASE_URL=http://<板子IP>:7788
+export UPSTREAM_EVENTS_PATH=/v1/channel/weixin
+export UPSTREAM_SHARED_SECRET=<一串随机密钥>     # 网关用它给回调加 Bearer 头
+
+weixin-gateway
+weixin-gateway login:start      # 输出 session_id / qrcode / qrcode_url
+weixin-gateway login:watch --session-id <session_id>
+weixin-gateway accounts        # 确认账号写入
+weixin-gateway poll:status     # 确认轮询在跑
+```
+
+> 若两台机器不在同一内网，`UPSTREAM_BASE_URL` 要能访问到晨曦；按第二节要求走 HTTPS 反代，**只**暴露 `/v1/channel/*`，不要把 7788 整体开公网。反向代理不得改写请求体。
+
+**S905M（晨曦）**，`/etc/chenxi.env` 追加（值必须与网关的 `UPSTREAM_SHARED_SECRET` **完全一致**）：
+
+```bash
+CHENXI_WEIXIN_SHARED_SECRET=<与 UPSTREAM_SHARED_SECRET 相同的值>
+```
+
+`config.json`：
+
+```json
+"weixin_gateway": {
+  "enabled": true,
+  "path": "/v1/channel/weixin",
+  "gateway_base": "http://<外部网关IP>:8787",
+  "send_path": "/send",
+  "shared_secret_env": "CHENXI_WEIXIN_SHARED_SECRET"
+}
+```
+
+未设置共享密钥时晨曦**拒绝启动**；`gateway_base` 是示例域名也会被拒。改完 `systemctl restart chenxi`。
+
+### 事件字段映射
+
+| 网关 callback 事件 | 晨曦 |
+|---|---|
+| `Authorization: Bearer <SHARED_SECRET>` | 常量时间比对，失败 403 |
+| `event_id` | `ChannelManager` 去重键 |
+| `text` | `Sanitize` → `App.Handle` |
+| `account_id` / `user_id` / `chat_id` | 回复目标的 `to_user_id` |
+| `context_token` | 回复时原样带回 |
+| `chat_type` | 默认 `c2c` |
+| `attachments[]` | **不读取**（只回一句说明）；路径在网关机器上 |
+| 2xx ACK | 立即返回，不读响应体内容 |
+
+回复不是写在 callback 的响应里，而是晨曦后台 worker 处理完后单独 `POST <gateway_base>/send`：
+
+```json
+{
+  "account_id": "wx-account-1",
+  "to_user_id": "wx-user-1",
+  "context_token": "ctx-1",
+  "chat_type": "c2c",
+  "items": [{"type": "text", "text": "你好，我收到了。"}]
+}
+```
+
+### 已知限制
+
+1. **附件不可用**：网关把附件下载到自己磁盘，事件里只有绝对路径；晨曦的 hostd 无法跨机读取。当前只处理文本。
+2. **过载可能丢消息**：队列满时晨曦返回 `503 + Retry-After`，但网关 README 只承诺「callback 返回 2xx 即可」，**未承诺非 2xx 会重试**。要可靠请改用网关的 `inbox` 模式（晨曦目前未实现 inbox 拉取，属于可能的后续扩展）。
+3. **账号会过期**：网关把 `session timeout` 的账号标成 `expired` 并跳过轮询，需要重新扫码；晨曦不感知这个状态，只能发现「突然收不到消息」。
+4. **未做真实联调**：本节按参考仓库 v0.2.6 的 README 与源码实现，**没有跑过真实扫码登录**；网关版本升级后字段若变化，以其官方 README 为准。
 
 ## 参考
 
 - 飞书开放平台：事件订阅、Encrypt Key 加密、`im/v1/messages`
 - 企业微信开发者中心：加解密方案说明、获取 access_token、发送应用消息
 - QQ 开放平台：Webhook 方式、安全和授权（Ed25519）、API 调用指南、获取访问凭证
+- 微信开放社区：clawbot 相关接口（二维码登录 / 状态轮询 / 通道重置）
+- [xuanji-weixin-gateway](https://github.com/huangyong7878/xuanji-weixin-gateway)：上游事件 schema、`/send` schema、callback/inbox 双模式

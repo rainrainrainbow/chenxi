@@ -41,6 +41,16 @@ type WebhookConf struct {
 	SecretEnv string `json:"secret_env"`
 }
 
+// WeixinGatewayConf：外部微信网关（ClawBot/iLink）的 HTTP 对接参数。
+// 网关本体是独立 Node 服务，不跑在晨曦这台 1 GB 机器上。
+type WeixinGatewayConf struct {
+	Enabled         bool   `json:"enabled"`
+	Path            string `json:"path"`
+	GatewayBase     string `json:"gateway_base"`
+	SendPath        string `json:"send_path"`
+	SharedSecretEnv string `json:"shared_secret_env"`
+}
+
 type NotifyConf struct {
 	Enabled bool   `json:"enabled"`
 	Kind    string `json:"kind"`
@@ -52,11 +62,12 @@ type ChannelsConfig struct {
 	MaxDedup         int          `json:"max_dedup"`
 	ReplyTimeoutSec  int          `json:"reply_timeout_sec"`
 	MaxCallbackBytes int          `json:"max_callback_bytes"`
-	Feishu           FeishuConf   `json:"feishu"`
-	WeCom            WeComConf    `json:"wecom"`
-	QQ               QQConf       `json:"qq"`
-	Webhook          WebhookConf  `json:"webhook"`
-	Notify           NotifyConf   `json:"notify"`
+	Feishu           FeishuConf        `json:"feishu"`
+	WeCom            WeComConf         `json:"wecom"`
+	QQ               QQConf            `json:"qq"`
+	Webhook          WebhookConf       `json:"webhook"`
+	WeixinGateway    WeixinGatewayConf `json:"weixin_gateway"`
+	Notify           NotifyConf        `json:"notify"`
 }
 
 func applyChannelDefaults(c *ChannelsConfig) {
@@ -90,6 +101,10 @@ func applyChannelDefaults(c *ChannelsConfig) {
 	}
 	setStr(&c.Webhook.Path, "/v1/channel/webhook")
 	setStr(&c.Webhook.SecretEnv, "CHENXI_WEBHOOK_SECRET")
+	setStr(&c.WeixinGateway.Path, "/v1/channel/weixin")
+	setStr(&c.WeixinGateway.GatewayBase, "http://127.0.0.1:8787")
+	setStr(&c.WeixinGateway.SendPath, "/send")
+	setStr(&c.WeixinGateway.SharedSecretEnv, "CHENXI_WEIXIN_SHARED_SECRET")
 	setStr(&c.Notify.Kind, "custom")
 	setStr(&c.Notify.URLEnv, "CHENXI_NOTIFY_URL")
 	setStr(&c.Notify.Title, "晨曦")
